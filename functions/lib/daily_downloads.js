@@ -1,15 +1,18 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.fetchDownloads = exports.checkForUnPostedDownloads = exports.handler = void 0;
+exports.fetchDownloads = exports.checkForUnPostedDownloads = exports.handler = exports.checkForUnPostedTestDownloads = exports.testHandler = void 0;
 const functions = require("firebase-functions");
 const common_1 = require("./common");
 const admin = require("firebase-admin");
+/* eslint-disable  @typescript-eslint/no-explicit-any */
+const testDownloads = "test_daily_downloads";
+const downloads = "dailyDownloads";
 // * ON-CREATE HANDLER
-const handler = async (snapshot, __) => {
+const handler = async (snapshot) => {
     const { dailyAudio, dailyColor, description, plain_description, dailyThumbnail, dailyVideo, postedOn, hours, minute, second, } = snapshot.data();
     if (snapshot.id === null || snapshot.id.trim().length === 0)
         return;
-    const downloadsRef = admin.firestore().collection("dailyDownloads");
+    const downloadsRef = admin.firestore().collection(downloads);
     const date = Date.now();
     if (postedOn > date) {
         downloadsRef.doc(snapshot.id).update({ "posted": false });
@@ -40,17 +43,17 @@ const handler = async (snapshot, __) => {
 };
 exports.handler = handler;
 // * ON SCHEDULED OPERATION TIME REACHES
-const checkForUnPostedDownloads = async (__) => {
+const checkForUnPostedDownloads = async () => {
     functions.logger.log("checking for un-posted downloads");
-    const downloadsRef = admin.firestore().collection("dailyDownloads");
+    const downloadsRef = admin.firestore().collection(downloads);
     const date = Date.now();
-    const snapshot = await downloadsRef.where("posted", "==", false).get();
+    const snapshot = await downloadsRef
+        .where("posted", "==", false)
+        .where("postedOn", "<=", date)
+        .get();
     const items = getDocsDataFromFirestore(snapshot.docs, false);
     for (const item of items) {
         if (item.key === null || item.key.trim().length === 0)
-            continue;
-        // if posting date is not yet reached skip
-        if (item.postedOn > date)
             continue;
         const args = {
             title: "Check Out The Daily Download",
@@ -64,6 +67,68 @@ const checkForUnPostedDownloads = async (__) => {
     }
 };
 exports.checkForUnPostedDownloads = checkForUnPostedDownloads;
+// ! TEST
+// * ON-CREATE HANDLER
+const testHandler = async (snapshot) => {
+    const { dailyAudio, dailyColor, description, plain_description, dailyThumbnail, dailyVideo, postedOn, hours, minute, second, } = snapshot.data();
+    if (snapshot.id === null || snapshot.id.trim().length === 0)
+        return;
+    const downloadsRef = admin.firestore().collection(testDownloads);
+    const date = Date.now();
+    if (postedOn > date) {
+        downloadsRef.doc(snapshot.id).update({ "posted": false });
+    }
+    else {
+        const args = {
+            title: "Check Out The Daily Download",
+            message: plain_description,
+            type: "daily_download",
+            item: {
+                dailyAudio: dailyAudio,
+                dailyColor: dailyColor,
+                description: description,
+                dailyThumbnail: dailyThumbnail,
+                dailyVideo: dailyVideo,
+                postedOn: postedOn,
+                plain_description: plain_description,
+                hours: hours,
+                minute: minute,
+                second: second,
+                key: snapshot.id,
+            },
+        };
+        await downloadsRef.doc(snapshot.id).update({ "posted": true });
+        const result = await (0, common_1.sendTestMessages)(args, args.item, postedOn);
+        functions.logger.debug(`${result}`);
+    }
+};
+exports.testHandler = testHandler;
+// ! TEST
+// * ON SCHEDULED OPERATION TIME REACHES
+const checkForUnPostedTestDownloads = async () => {
+    functions.logger.debug("checking for un-posted test downloads");
+    const downloadsRef = admin.firestore().collection(testDownloads);
+    const date = Date.now();
+    const snapshot = await downloadsRef
+        .where("posted", "==", false)
+        .where("postedOn", "<=", date)
+        .get();
+    const items = getDocsDataFromFirestore(snapshot.docs, false);
+    for (const item of items) {
+        if (item.key === null || item.key.trim().length === 0)
+            continue;
+        const args = {
+            title: "Check Out The Daily Download",
+            message: item.plain_description,
+            type: "daily_download",
+            item: item,
+        };
+        await downloadsRef.doc(item.key).update({ "posted": true });
+        const result = await (0, common_1.sendTestMessages)(args, args.item, item.postedOn);
+        functions.logger.debug(`${result}`);
+    }
+};
+exports.checkForUnPostedTestDownloads = checkForUnPostedTestDownloads;
 const fetchDownloads = async (_, res) => {
     const downloadsRef = admin.firestore().collection("dailyDownloads");
     try {

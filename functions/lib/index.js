@@ -17,9 +17,15 @@ admin.initializeApp({
 exports.onDownloadCreated = functions.firestore
     .document("dailyDownloads/{ID}")
     .onCreate(downloads.handler);
+exports.onTestDownloadCreated = functions.firestore
+    .document("test_daily_downloads/{ID}")
+    .onCreate(downloads.testHandler);
 exports.onNewItemAdded = functions.firestore
     .document("whats_new/{ID}")
     .onCreate(whatsNew.handler);
+exports.onTestNewItemAdded = functions.firestore
+    .document("test_whats_new/{ID}")
+    .onCreate(whatsNew.testHandler);
 exports.onDeviceCreated = functions.firestore
     .document("devices/{ID}")
     .onCreate(devices.onAddHander);
@@ -29,5 +35,8 @@ exports.onDeviceEdited = functions.firestore
 exports.checkForUnPostedDownloads = functions.pubsub
     .schedule("*/10 * * * *")
     .onRun(downloads.checkForUnPostedDownloads);
+exports.checkForUnPostedTestDownloads = functions.pubsub
+    .schedule("*/3 * * * *")
+    .onRun(downloads.checkForUnPostedTestDownloads);
 exports.dailyDownloadsFetch = functions.https.onRequest(downloads.fetchDownloads);
 //# sourceMappingURL=index.js.map

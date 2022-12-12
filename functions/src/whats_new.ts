@@ -1,12 +1,11 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import { EventContext } from "firebase-functions";
 import { QueryDocumentSnapshot } from "firebase-functions/v1/firestore";
-import { sendMessage, TokenMessageArguments } from "./common";
+import { sendMessage, sendTestMessages, TokenMessageArguments } from "./common";
 import { DataSnapshot } from "firebase-admin/database";
+/* eslint-disable  @typescript-eslint/no-explicit-any */
 
-
-const handler = async (snapshot: QueryDocumentSnapshot, __: EventContext) => {
+const handler = async (snapshot: QueryDocumentSnapshot) => {
     const { id, createdAt, position, type } = snapshot.data();
 
     try {
@@ -40,6 +39,46 @@ const handler = async (snapshot: QueryDocumentSnapshot, __: EventContext) => {
         }
 
         const result = await sendMessage(args, args.item, createdAt);
+        functions.logger.log(`${result}`);
+    } catch (error) {
+        functions.logger.log(`error: ${error}`);
+    }
+}
+
+export const testHandler = async (snapshot: QueryDocumentSnapshot) => {
+    const { id, createdAt, position, type } = snapshot.data();
+
+    try {
+        const item = await _getItemFrom(id, type);
+        let topic: Topic;
+        if (type == "topic") {
+            topic = await _getTopicFrom(id);
+        } else {
+            topic = await _getTopicFrom(item["topicID"]);
+        }
+
+        const category = await _getCategoryFrom(topic["categoryID"]);
+        const description = _getDescription(type == "topic" ? topic : item, type, topic.topicName, category.name,);
+
+        const args: TokenArgumentsWithWhatsNew = {
+            title: _getTitleFromType(type, item),
+            message: description,
+            type: "whats_new",
+            item: {
+                createdAt: createdAt,
+                id: id,
+                position: position,
+                type: type,
+                topic: topic,
+                category: category,
+                book: type == "book" ? item : null,
+                recode: type == "recode" ? item : null,
+                decode: type == "decode" ? item : null,
+                stone: type == "stone" ? item : null,
+            },
+        }
+
+        const result = await sendTestMessages(args, args.item, createdAt);
         functions.logger.log(`${result}`);
     } catch (error) {
         functions.logger.log(`error: ${error}`);

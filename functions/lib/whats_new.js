@@ -1,10 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.handler = void 0;
+exports.handler = exports.testHandler = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const common_1 = require("./common");
-const handler = async (snapshot, __) => {
+/* eslint-disable  @typescript-eslint/no-explicit-any */
+const handler = async (snapshot) => {
     const { id, createdAt, position, type } = snapshot.data();
     try {
         const item = await _getItemFrom(id, type);
@@ -42,6 +43,44 @@ const handler = async (snapshot, __) => {
     }
 };
 exports.handler = handler;
+const testHandler = async (snapshot) => {
+    const { id, createdAt, position, type } = snapshot.data();
+    try {
+        const item = await _getItemFrom(id, type);
+        let topic;
+        if (type == "topic") {
+            topic = await _getTopicFrom(id);
+        }
+        else {
+            topic = await _getTopicFrom(item["topicID"]);
+        }
+        const category = await _getCategoryFrom(topic["categoryID"]);
+        const description = _getDescription(type == "topic" ? topic : item, type, topic.topicName, category.name);
+        const args = {
+            title: _getTitleFromType(type, item),
+            message: description,
+            type: "whats_new",
+            item: {
+                createdAt: createdAt,
+                id: id,
+                position: position,
+                type: type,
+                topic: topic,
+                category: category,
+                book: type == "book" ? item : null,
+                recode: type == "recode" ? item : null,
+                decode: type == "decode" ? item : null,
+                stone: type == "stone" ? item : null,
+            },
+        };
+        const result = await (0, common_1.sendTestMessages)(args, args.item, createdAt);
+        functions.logger.log(`${result}`);
+    }
+    catch (error) {
+        functions.logger.log(`error: ${error}`);
+    }
+};
+exports.testHandler = testHandler;
 const _getTitleFromType = (type, item) => {
     var _a;
     if (type == "recode") {
