@@ -63,7 +63,7 @@ const sendMessage = async ({ title, message, type, id, }, item) => {
             // when the next job starts it knows from what device to start sending 
             // the notification and what item to send
             // done at this time so as to avoid unnecessary writes.
-            await settingsRef.doc(exports.lastDeviceDocID).update({ "id": doc.id });
+            await settingsRef.doc(exports.lastDeviceDocID).set({ "id": doc.id });
             await settingsRef.doc(exports.argsDocID).set({
                 "type": type,
                 "title": title,

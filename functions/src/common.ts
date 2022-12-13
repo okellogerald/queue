@@ -42,7 +42,7 @@ const sendMessage = async (
     await delayFor(1200);
     const deviceSnapshot = await settingsRef.doc(lastDeviceDocID).get();
     if (deviceSnapshot.exists) {
-        const device = deviceSnapshot.data() ?? {}
+        const device = deviceSnapshot.data() ?? {};
         const deviceID = device['id'] ?? "";
         if (deviceID.trim().length === 0) {
             snapshot = await devicesRef.get();
@@ -87,7 +87,7 @@ const sendMessage = async (
             // the notification and what item to send
 
             // done at this time so as to avoid unnecessary writes.
-            await settingsRef.doc(lastDeviceDocID).update({ "id": doc.id });
+            await settingsRef.doc(lastDeviceDocID).set({ "id": doc.id });
             await settingsRef.doc(argsDocID).set({
                 "type": type,
                 "title": title,
