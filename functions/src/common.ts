@@ -97,7 +97,6 @@ const sendMessage = async (
             });
             break;
         } {
-
             const token: string = data["token"] ?? "";
             if (token.trim().length == 0) continue;
 
