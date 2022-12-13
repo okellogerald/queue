@@ -36,9 +36,10 @@ const handler = async (snapshot: QueryDocumentSnapshot) => {
                 decode: type == "decode" ? item : null,
                 stone: type == "stone" ? item : null,
             },
+            id: createdAt.toString(),
         }
 
-        const result = await sendMessage(args, args.item, createdAt);
+        const result = await sendMessage(args, args.item);
         functions.logger.log(`${result}`);
     } catch (error) {
         functions.logger.log(`error: ${error}`);
@@ -76,6 +77,7 @@ export const testHandler = async (snapshot: QueryDocumentSnapshot) => {
                 decode: type == "decode" ? item : null,
                 stone: type == "stone" ? item : null,
             },
+            id: createdAt.toString(),
         }
 
         const result = await sendTestMessages(args, args.item, createdAt);
@@ -178,11 +180,11 @@ const _getDescription = (item: any, type: string, topicName: string, categoryNam
     }
 }
 
-interface TokenArgumentsWithWhatsNew extends TokenMessageArguments {
+export interface TokenArgumentsWithWhatsNew extends TokenMessageArguments {
     item: WhatsNew,
 }
 
-interface WhatsNew {
+export interface WhatsNew {
     id: string,
     createdAt: string,
     position: number,

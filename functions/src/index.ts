@@ -5,6 +5,7 @@ import * as functions from "firebase-functions";
 import * as downloads from "./daily_downloads";
 import * as whatsNew from "./whats_new";
 import * as devices from "./devices";
+import * as common from "./common";
 
 const serviceAccount: ServiceAccount = {
     clientEmail: "firebase-adminsdk-wpigv@the-why-app.iam.gserviceaccount.com",
@@ -18,7 +19,10 @@ admin.initializeApp({
     databaseURL: "https://the-why-app.firebaseio.com",
 });
 
-exports.onDownloadCreated = functions.firestore
+exports.onDownloadCreated = functions.runWith({
+    timeoutSeconds: 540,
+    memory: "1GB",
+}).firestore
     .document("dailyDownloads/{ID}")
     .onCreate(downloads.handler);
 
@@ -26,12 +30,15 @@ exports.onTestDownloadCreated = functions.firestore
     .document("test_daily_downloads/{ID}")
     .onCreate(downloads.testHandler);
 
-exports.onNewItemAdded = functions.firestore
+exports.onNewItemAdded = functions.runWith({
+    timeoutSeconds: 540,
+    memory: "1GB",
+}).firestore
     .document("whats_new/{ID}")
     .onCreate(whatsNew.handler);
 
 exports.onTestNewItemAdded = functions.firestore
-    .document("test_whats_new/{ID}")
+    .document("test_collection/{ID}")
     .onCreate(whatsNew.testHandler);
 
 exports.onDeviceCreated = functions.firestore
@@ -42,12 +49,25 @@ exports.onDeviceEdited = functions.firestore
     .document("devices/{ID}")
     .onUpdate(devices.onEditHandler);
 
-exports.checkForUnPostedDownloads = functions.pubsub
+exports.checkForUnPostedDownloads = functions.runWith({
+    timeoutSeconds: 540,
+    memory: "1GB",
+}).pubsub
     .schedule("*/10 * * * *")
     .onRun(downloads.checkForUnPostedDownloads);
 
-exports.checkForUnPostedTestDownloads = functions.pubsub
-    .schedule("*/3 * * * *")
-    .onRun(downloads.checkForUnPostedTestDownloads);
+/// checks after every 9 minutes if there is staff to send. Takes the last device id and
+/// starts from there to send the notifications. After 8 minutes, the last document id is updated
+/// in its collection waiting for this function to run again in the next 1 minute, and proceed with
+/// the operation.
+exports.continueSendingNotifications = functions.runWith({
+    timeoutSeconds: 540,
+    memory: "1GB",
+}).pubsub
+    .schedule("*/9 * * * *")
+    .onRun(common.continueSendingNotifications);
 
 exports.dailyDownloadsFetch = functions.https.onRequest(downloads.fetchDownloads);
+
+//exports.testDailyDownloadsFetch = functions.https.onRequest(downloads.fetchTestDownloads);
+

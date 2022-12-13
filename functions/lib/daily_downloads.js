@@ -1,18 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.fetchDownloads = exports.checkForUnPostedDownloads = exports.handler = exports.checkForUnPostedTestDownloads = exports.testHandler = void 0;
+exports.fetchDownloads = exports.checkForUnPostedDownloads = exports.handler = exports.fetchTestDownloads = exports.checkForUnPostedTestDownloads = exports.testHandler = void 0;
 const functions = require("firebase-functions");
 const common_1 = require("./common");
 const admin = require("firebase-admin");
-/* eslint-disable  @typescript-eslint/no-explicit-any */
-const testDownloads = "test_daily_downloads";
-const downloads = "dailyDownloads";
+/* eslint-disable  @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion*/
 // * ON-CREATE HANDLER
 const handler = async (snapshot) => {
     const { dailyAudio, dailyColor, description, plain_description, dailyThumbnail, dailyVideo, postedOn, hours, minute, second, } = snapshot.data();
     if (snapshot.id === null || snapshot.id.trim().length === 0)
         return;
-    const downloadsRef = admin.firestore().collection(downloads);
+    const downloadsRef = admin.firestore().collection(common_1.downloads);
     const date = Date.now();
     if (postedOn > date) {
         downloadsRef.doc(snapshot.id).update({ "posted": false });
@@ -35,9 +33,10 @@ const handler = async (snapshot) => {
                 second: second,
                 key: snapshot.id,
             },
+            id: postedOn.toString(),
         };
         await downloadsRef.doc(snapshot.id).update({ "posted": true });
-        const result = await (0, common_1.sendMessage)(args, args.item, postedOn);
+        const result = await (0, common_1.sendMessage)(args, args.item);
         functions.logger.log(`${result}`);
     }
 };
@@ -45,7 +44,7 @@ exports.handler = handler;
 // * ON SCHEDULED OPERATION TIME REACHES
 const checkForUnPostedDownloads = async () => {
     functions.logger.log("checking for un-posted downloads");
-    const downloadsRef = admin.firestore().collection(downloads);
+    const downloadsRef = admin.firestore().collection(common_1.downloads);
     const date = Date.now();
     const snapshot = await downloadsRef
         .where("posted", "==", false)
@@ -60,9 +59,10 @@ const checkForUnPostedDownloads = async () => {
             message: item.plain_description,
             type: "daily_download",
             item: item,
+            id: item.postedOn.toString(),
         };
         await downloadsRef.doc(item.key).update({ "posted": true });
-        const result = await (0, common_1.sendMessage)(args, args.item, item.postedOn);
+        const result = await (0, common_1.sendMessage)(args, args.item);
         functions.logger.log(`${result}`);
     }
 };
@@ -73,7 +73,7 @@ const testHandler = async (snapshot) => {
     const { dailyAudio, dailyColor, description, plain_description, dailyThumbnail, dailyVideo, postedOn, hours, minute, second, } = snapshot.data();
     if (snapshot.id === null || snapshot.id.trim().length === 0)
         return;
-    const downloadsRef = admin.firestore().collection(testDownloads);
+    const downloadsRef = admin.firestore().collection(common_1.testDownloads);
     const date = Date.now();
     if (postedOn > date) {
         downloadsRef.doc(snapshot.id).update({ "posted": false });
@@ -96,6 +96,7 @@ const testHandler = async (snapshot) => {
                 second: second,
                 key: snapshot.id,
             },
+            id: postedOn.toString(),
         };
         await downloadsRef.doc(snapshot.id).update({ "posted": true });
         const result = await (0, common_1.sendTestMessages)(args, args.item, postedOn);
@@ -107,7 +108,7 @@ exports.testHandler = testHandler;
 // * ON SCHEDULED OPERATION TIME REACHES
 const checkForUnPostedTestDownloads = async () => {
     functions.logger.debug("checking for un-posted test downloads");
-    const downloadsRef = admin.firestore().collection(testDownloads);
+    const downloadsRef = admin.firestore().collection(common_1.testDownloads);
     const date = Date.now();
     const snapshot = await downloadsRef
         .where("posted", "==", false)
@@ -122,6 +123,7 @@ const checkForUnPostedTestDownloads = async () => {
             message: item.plain_description,
             type: "daily_download",
             item: item,
+            id: item.postedOn.toString(),
         };
         await downloadsRef.doc(item.key).update({ "posted": true });
         const result = await (0, common_1.sendTestMessages)(args, args.item, item.postedOn);
@@ -141,6 +143,18 @@ const fetchDownloads = async (_, res) => {
     }
 };
 exports.fetchDownloads = fetchDownloads;
+const fetchTestDownloads = async (_, res) => {
+    const downloadsRef = admin.firestore().collection("test_daily_downloads");
+    try {
+        const snapshot = await downloadsRef.get();
+        const list = getDocsDataFromFirestore(snapshot.docs, true);
+        res.status(200).send(list);
+    }
+    catch (error) {
+        res.status(500).send({ "error": `${error}` });
+    }
+};
+exports.fetchTestDownloads = fetchTestDownloads;
 const getDocsDataFromFirestore = (values, toAPI) => {
     const list = [];
     for (const doc of values) {

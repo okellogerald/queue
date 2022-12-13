@@ -1,11 +1,9 @@
 import * as functions from "firebase-functions";
-import { sendMessage, sendTestMessages, TokenMessageArguments } from "./common";
+import { downloads, sendMessage, sendTestMessages, testDownloads, TokenMessageArguments } from "./common";
 import * as admin from "firebase-admin";
 import { QueryDocumentSnapshot } from "firebase-functions/v1/firestore";
-/* eslint-disable  @typescript-eslint/no-explicit-any */
 
-const testDownloads = "test_daily_downloads";
-const downloads = "dailyDownloads";
+/* eslint-disable  @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion*/
 
 // * ON-CREATE HANDLER
 const handler = async (snapshot: QueryDocumentSnapshot) => {
@@ -46,10 +44,11 @@ const handler = async (snapshot: QueryDocumentSnapshot) => {
                 second: second,
                 key: snapshot.id,
             },
+            id: postedOn.toString(),
         }
 
         await downloadsRef.doc(snapshot.id).update({ "posted": true });
-        const result = await sendMessage(args, args.item, postedOn);
+        const result = await sendMessage(args, args.item);
         functions.logger.log(`${result}`);
     }
 }
@@ -75,10 +74,11 @@ const checkForUnPostedDownloads = async () => {
             message: item.plain_description,
             type: "daily_download",
             item: item,
+            id: item.postedOn.toString(),
         }
 
         await downloadsRef.doc(item.key).update({ "posted": true });
-        const result = await sendMessage(args, args.item, item.postedOn);
+        const result = await sendMessage(args, args.item);
         functions.logger.log(`${result}`);
     }
 }
@@ -123,6 +123,7 @@ export const testHandler = async (snapshot: QueryDocumentSnapshot) => {
                 second: second,
                 key: snapshot.id,
             },
+            id: postedOn.toString(),
         }
 
         await downloadsRef.doc(snapshot.id).update({ "posted": true });
@@ -153,6 +154,7 @@ export const checkForUnPostedTestDownloads = async () => {
             message: item.plain_description,
             type: "daily_download",
             item: item,
+            id: item.postedOn.toString(),
         }
 
         await downloadsRef.doc(item.key).update({ "posted": true });
@@ -173,6 +175,18 @@ const fetchDownloads = async (_: functions.https.Request, res: functions.Respons
     }
 }
 
+export const fetchTestDownloads = async (_: functions.https.Request, res: functions.Response): Promise<void> => {
+    const downloadsRef = admin.firestore().collection("test_daily_downloads");
+
+    try {
+        const snapshot = await downloadsRef.get();
+        const list = getDocsDataFromFirestore(snapshot.docs, true);
+        res.status(200).send(list);
+    } catch (error) {
+        res.status(500).send({ "error": `${error}` });
+    }
+}
+
 const getDocsDataFromFirestore = (values: QueryDocumentSnapshot[], toAPI: boolean): any[] => {
     const list = [];
     for (const doc of values) {
@@ -183,7 +197,7 @@ const getDocsDataFromFirestore = (values: QueryDocumentSnapshot[], toAPI: boolea
     return list;
 }
 
-interface DownloadItem {
+export interface DownloadItem {
     key: string,
     dailyAudio: string,
     dailyColor: string,
@@ -198,7 +212,7 @@ interface DownloadItem {
     second: string,
 }
 
-interface TokenArgumentsWithDownloadItem extends TokenMessageArguments {
+export interface TokenArgumentsWithDownloadItem extends TokenMessageArguments {
     item: DownloadItem,
 }
 

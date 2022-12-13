@@ -34,8 +34,9 @@ const handler = async (snapshot) => {
                 decode: type == "decode" ? item : null,
                 stone: type == "stone" ? item : null,
             },
+            id: createdAt.toString(),
         };
-        const result = await (0, common_1.sendMessage)(args, args.item, createdAt);
+        const result = await (0, common_1.sendMessage)(args, args.item);
         functions.logger.log(`${result}`);
     }
     catch (error) {
@@ -72,6 +73,7 @@ const testHandler = async (snapshot) => {
                 decode: type == "decode" ? item : null,
                 stone: type == "stone" ? item : null,
             },
+            id: createdAt.toString(),
         };
         const result = await (0, common_1.sendTestMessages)(args, args.item, createdAt);
         functions.logger.log(`${result}`);
