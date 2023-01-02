@@ -82,7 +82,7 @@ const sendMessage = async (
         }
 
         if ((Date.now() - start) >= 360000) {
-            // timeout is 2 minutes away. Update the settings documents so that
+            // timeout is about 2 minutes away. Update the settings documents so that
             // when the next job starts it knows from what device to start sending 
             // the notification and what item to send
 
