@@ -1,11 +1,13 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { QueryDocumentSnapshot } from "firebase-functions/v1/firestore";
-import { sendMessage, sendTestMessages, TokenMessageArguments } from "./common";
+import { sendNotification, sendTestMessages, TokenMessageArguments } from "./common";
 import { DataSnapshot } from "firebase-admin/database";
 /* eslint-disable  @typescript-eslint/no-explicit-any */
 
 const handler = async (snapshot: QueryDocumentSnapshot) => {
+    const start = Date.now();
+
     const { id, createdAt, position, type } = snapshot.data();
 
     try {
@@ -39,7 +41,7 @@ const handler = async (snapshot: QueryDocumentSnapshot) => {
             id: createdAt.toString(),
         }
 
-        const result = await sendMessage(args, args.item);
+        const result = await sendNotification(args, start);
         functions.logger.log(`${result}`);
     } catch (error) {
         functions.logger.log(`error: ${error}`);

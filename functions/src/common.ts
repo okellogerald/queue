@@ -1,9 +1,8 @@
 import { AndroidConfig, ApnsConfig, TokenMessage, TopicMessage } from "firebase-admin/lib/messaging/messaging-api";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
-import { WhatsNew } from "./whats_new";
-import { DownloadItem, TokenArgumentsWithDownloadItem } from "./daily_downloads";
 import { TokenArgumentsWithWhatsNew } from "./whats_new";
+import { TokenArgumentsWithDownloadItem } from "./daily_downloads";
 
 /* eslint-disable  @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion*/
 
@@ -12,9 +11,6 @@ export const whatsNewType = "whats_new";
 export const dailyDownloadType = "daily_download";
 export const testDownloads = "test_daily_downloads";
 export const downloads = "dailyDownloads";
-export const lastDeviceDocID = "last_device_id";
-export const argsDocID = "args";
-
 interface TokenMessageArguments {
     title: string,
     message: string,
@@ -22,147 +18,138 @@ interface TokenMessageArguments {
     id: string,
 }
 
-const sendMessage = async (
-    {
-        title,
-        message,
-        type,
-        id,
-    }: TokenMessageArguments, item: DownloadItem | WhatsNew,
-): Promise<string> => {
-    const start = Date.now();
-
+const sendTokenNotification = async (
+    notification: TokenArgumentsWithDownloadItem | TokenArgumentsWithWhatsNew,
+    device: Device,
+): Promise<void> => {
     const devicesRef = admin.firestore().collection("devices");
-    const settingsRef = admin.firestore().collection("settings");
 
-    let snapshot: admin.firestore.QuerySnapshot<admin.firestore.DocumentData>;
+    const args: PayloadArguments = {
+        token: device.token,
+        title: notification.title,
+        message: notification.message,
+        badge: device.badge + 1,
+        type: notification.type,
+        item: notification.item,
+        id: notification.id,
+    };
+
+    const payload = createTokenPayload(args);
+
+    // avoiding sending the same notification twice
+    if (device.notifications?.includes(notification.id)) return;
+
+    try {
+        await admin.messaging().send(payload);
+        let notifications = device.notifications ?? [];
+        // keeping only the 30 last notification ids
+        if (notifications.length > 30) {
+            const sliced = notifications.slice(notifications.length - 30, notifications.length);
+            notifications = sliced;
+        }
+        notifications.push(notification.id);
+        await devicesRef.doc(device.id)
+            .update({
+                badge: device.badge + 1,
+                notifications: notifications,
+            });
+        functions.logger.info(`successfully sent message to ${device.id}`);
+    } catch (error) {
+        functions.logger.error(error);
+    }
+}
+
+const sendNotification = async (
+    notification: TokenArgumentsWithDownloadItem | TokenArgumentsWithWhatsNew,
+    startTime: number,
+): Promise<string> => {
+    const devicesRef = admin.firestore().collection("devices");
+    const notificationsRef = admin.firestore().collection("settings");
+
+    const snapshot = await devicesRef.get();
 
     /// delay for one second to make sure you don't run into 1 document read per second on 
     /// enforced by Cloud Firestore
     await delayFor(1200);
-    const deviceSnapshot = await settingsRef.doc(lastDeviceDocID).get();
-    if (deviceSnapshot.exists) {
-        const device = deviceSnapshot.data() ?? {};
-        const deviceID = device['id'] ?? "";
-        if (deviceID.trim().length === 0) {
-            snapshot = await devicesRef.get();
-        } else {
-            snapshot = await devicesRef.startAt(deviceSnapshot).get();
-        }
-    } else {
-        snapshot = await devicesRef.get();
-    }
 
     /// index to keep track of a number of devices that have been sent a notification.
     let index = 0;
 
-    /// Id or key of the item (whats-new or daily-download) which we are sending notifications
-    /// about.
-    let itemKey: string;
-    if (type === dailyDownloadType) {
-        itemKey = (item as DownloadItem).key;
-    }
-    else {
-        itemKey = (item as WhatsNew).id;
-    }
-
-    if (itemKey.trim().length === 0) return "Item key was empty";
-
     /// looping over all devices in a snapshot.docs.
     for (const doc of snapshot.docs) {
-        const data = doc.data();
+        const device = { ...doc.data(), "id": doc.id } as Device;
 
-        const lastNotificationID = data['last_notification_id'] ?? "";
-        if (lastNotificationID === itemKey) {
-            // It started resending the item notification
-            await settingsRef.doc(lastDeviceDocID).delete();
-            await settingsRef.doc(argsDocID).delete();
-            functions.logger.error("NOT AN ERROR. JUST WANTED SOME ATTENTION. I HAVE REACHED THE END");
+        if ((Date.now() - startTime) >= 360000) {
+            // timeout is about 2 minutes away. Update the notifications collection so that
+            // when the next job starts it knows to what devices to continue sending 
+            // the notification
+            await notificationsRef.add({
+                "notification": notification,
+                "timestamp": Date.now(),
+                "last_device_id": device.id,
+            });
             break;
         }
+        await sendTokenNotification(notification, device);
+        functions.logger.log("sent notification to device no. ", index, ". ID is ", doc.id);
+        index++;
+    }
+
+    return "sent messages to all devices";
+};
+
+const continueSendingNotification = async (
+    notification: TokenArgumentsWithDownloadItem | TokenArgumentsWithWhatsNew,
+    devices: admin.firestore.QueryDocumentSnapshot<admin.firestore.DocumentData>[],
+): Promise<string> => {
+    const start = Date.now();
+
+    const notificationsRef = admin.firestore().collection("settings");
+
+    /// delay for one second to make sure you don't run into 1 document read per second on 
+    /// enforced by Cloud Firestore
+    await delayFor(1200);
+
+    /// looping over all devices in a snapshot.docs.
+    for (const doc of devices) {
+        const data = doc.data() as Device;
 
         if ((Date.now() - start) >= 360000) {
             // timeout is about 2 minutes away. Update the settings documents so that
             // when the next job starts it knows from what device to start sending 
             // the notification and what item to send
 
-            // done at this time so as to avoid unnecessary writes.
-            await settingsRef.doc(lastDeviceDocID).set({ "id": doc.id });
-            await settingsRef.doc(argsDocID).set({
-                "type": type,
-                "title": title,
-                "message": message,
-                "item": item,
-                "id": id.toString(),
+            await notificationsRef.doc(notification.id).set({
+                "notification": notification,
+                "timestamp": Date.now(),
             });
             break;
-        } {
-            const token: string = data["token"] ?? "";
-            if (token.trim().length == 0) continue;
-
-            const badge: number = data["badge"] ?? 0;
-            const args: PayloadArguments = {
-                token: token,
-                title: title,
-                message: message,
-                badge: badge + 1,
-                type: type,
-                item: item,
-                id: id,
-            };
-
-            const payload = createTokenPayload(args);
-            functions.logger.log("sending notification; device no. ", index, " id is ", doc.id, " start time was ", start, " now is ", Date.now());
-
-            try {
-                await admin.messaging().send(payload);
-                await devicesRef.doc(doc.id).update({ badge: badge + 1, last_notification_id: itemKey });
-                functions.logger.info(`successfully sent message to ${doc.id}`);
-                index++;
-            } catch (error) {
-                functions.logger.error(error);
-                index++;
-                continue;
-            }
         }
-
+        await sendTokenNotification(notification, data);
     }
 
-    return "sent messages to all devices";
+    return "sent messages to all remaining devices";
 };
 
 export const continueSendingNotifications = async () => {
     functions.logger.info("CONTINUING SENDING NOTIFICATIONS PROCESS");
 
-    const settingsRef = admin.firestore().collection("settings");
+    const devicesRef = admin.firestore().collection("devices");
+    const notificationsRef = admin.firestore()
+        .collection("notifications")
+        .orderBy("timestamp", "desc");
+    const snapshots = await notificationsRef.get();
 
-    /// gets the last document id to which the notification was sent.
-    const doc = await settingsRef.doc(lastDeviceDocID).get();
-    if (doc.exists) {
-        const data = doc.data() ?? {};
-        const lastDeviceDocID = data['id'] ?? '';
-        if (lastDeviceDocID.trim().length === 0) return;
+    if (snapshots.size === 0) functions.logger.info("NO NOTIFICATION WAS FOUND");
 
-        const argsSnapshot = await settingsRef.doc(argsDocID).get();
-        let args: TokenArgumentsWithDownloadItem | TokenArgumentsWithWhatsNew | undefined = undefined;
-        if (argsSnapshot.exists) {
-            const _args = argsSnapshot.data()!;
-            if (_args.type === dailyDownloadType) {
-                args = _args as TokenArgumentsWithDownloadItem;
-            }
-            if (_args.type === whatsNewType) {
-                args = _args as TokenArgumentsWithWhatsNew;
-            }
-        }
-
-        if (args !== undefined) {
-            const notificationArgs = args as TokenArgumentsWithDownloadItem | TokenArgumentsWithWhatsNew;
-
-            const result = await sendMessage(notificationArgs, notificationArgs.item);
-            functions.logger.log(`${result}`)
-        }
-    } else {
-        functions.logger.info("LAST DEVICE ID WAS NOT FOUND");
+    for (const doc of snapshots.docs) {
+        const data = doc.data();
+        const devicesSnapshot = await devicesRef.
+            where("notifications", "not-in", [doc.id])
+            .get();
+        if (devicesSnapshot.size === 0) continue;
+        await continueSendingNotification(data.notification, devicesSnapshot.docs);
+        break;
     }
 }
 
@@ -236,6 +223,13 @@ interface PayloadArguments {
     badge: number;
     item: any;
     id: string;
+}
+
+interface Device {
+    badge: number;
+    token: string;
+    id: string;
+    notifications?: Array<string>;
 }
 
 const createTokenPayload = ({
@@ -337,4 +331,4 @@ export const createTopicPayload = ({
 
 const delayFor = async (milliseconds: number) => await new Promise(resolve => setTimeout(resolve, milliseconds));
 
-export { sendMessage, TokenMessageArguments }
+export { sendNotification, TokenMessageArguments }

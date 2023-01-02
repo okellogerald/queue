@@ -1,5 +1,5 @@
 import * as functions from "firebase-functions";
-import { downloads, sendMessage, sendTestMessages, testDownloads, TokenMessageArguments } from "./common";
+import { downloads, sendNotification, sendTestMessages, testDownloads, TokenMessageArguments } from "./common";
 import * as admin from "firebase-admin";
 import { QueryDocumentSnapshot } from "firebase-functions/v1/firestore";
 
@@ -7,6 +7,8 @@ import { QueryDocumentSnapshot } from "firebase-functions/v1/firestore";
 
 // * ON-CREATE HANDLER
 const handler = async (snapshot: QueryDocumentSnapshot) => {
+    const start = Date.now();
+
     const { dailyAudio,
         dailyColor,
         description,
@@ -48,13 +50,15 @@ const handler = async (snapshot: QueryDocumentSnapshot) => {
         }
 
         await downloadsRef.doc(snapshot.id).update({ "posted": true });
-        const result = await sendMessage(args, args.item);
+        const result = await sendNotification(args, start);
         functions.logger.log(`${result}`);
     }
 }
 
 // * ON SCHEDULED OPERATION TIME REACHES
 const checkForUnPostedDownloads = async () => {
+    const start = Date.now();
+
     functions.logger.log("checking for un-posted downloads");
 
     const downloadsRef = admin.firestore().collection(downloads);
@@ -78,7 +82,7 @@ const checkForUnPostedDownloads = async () => {
         }
 
         await downloadsRef.doc(item.key).update({ "posted": true });
-        const result = await sendMessage(args, args.item);
+        const result = await sendNotification(args, start);
         functions.logger.log(`${result}`);
     }
 }
