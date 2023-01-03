@@ -57,7 +57,7 @@ export const sendTokenNotification = async (
     }
 }
 
-/** Sends a notification to multile devices. This is only called when a function
+/** Sends a notification to multiple devices. This is only called when a function
  * is triggered by a new document being added in the collection.
  * 
  * It should spend about 6 minutes. If there are still devices in the collection
