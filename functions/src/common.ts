@@ -1,28 +1,29 @@
-import { AndroidConfig, ApnsConfig, TokenMessage, TopicMessage } from "firebase-admin/lib/messaging/messaging-api";
+import {
+    AndroidConfig,
+    ApnsConfig,
+    TokenMessage,
+    TopicMessage
+} from "firebase-admin/lib/messaging/messaging-api";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
-import { TokenArgumentsWithWhatsNew } from "./whats_new";
-import { TokenArgumentsWithDownloadItem } from "./daily_downloads";
+import {
+    Device,
+    PayloadArguments,
+    Notification,
+} from "./types";
 
 /* eslint-disable  @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion*/
 
-// * Const keys
-export const whatsNewType = "whats_new";
-export const dailyDownloadType = "daily_download";
-export const testDownloads = "test_daily_downloads";
-export const downloads = "dailyDownloads";
-interface TokenMessageArguments {
-    title: string,
-    message: string,
-    type: string,
-    id: string,
-}
+// * Collection Names
+export const kDevices = "devices";
+export const kNotifications = "notifications";
 
-const sendTokenNotification = async (
-    notification: TokenArgumentsWithDownloadItem | TokenArgumentsWithWhatsNew,
+/** Sends a notification to a single device using a device token */
+export const sendTokenNotification = async (
+    notification: Notification,
     device: Device,
 ): Promise<void> => {
-    const devicesRef = admin.firestore().collection("devices");
+    const devicesRef = admin.firestore().collection(kDevices);
 
     const args: PayloadArguments = {
         token: device.token,
@@ -31,18 +32,15 @@ const sendTokenNotification = async (
         badge: device.badge + 1,
         type: notification.type,
         item: notification.item,
-        id: notification.id,
+        collapseID: notification.collapseID,
     };
 
     const payload = createTokenPayload(args);
 
-    // avoiding sending the same notification twice
-    if (device.notifications?.includes(notification.id)) return;
-
     try {
         await admin.messaging().send(payload);
         let notifications = device.notifications ?? [];
-        // keeping only the 30 last notification ids
+        // keep only the 30 last notification ids
         if (notifications.length > 30) {
             const sliced = notifications.slice(notifications.length - 30, notifications.length);
             notifications = sliced;
@@ -59,12 +57,20 @@ const sendTokenNotification = async (
     }
 }
 
-const sendNotification = async (
-    notification: TokenArgumentsWithDownloadItem | TokenArgumentsWithWhatsNew,
+/** Sends a notification to multile devices. This is only called when a function
+ * is triggered by a new document being added in the collection.
+ * 
+ * It should spend about 6 minutes. If there are still devices in the collection
+ * that have not been sent the notification after spending about 6 minutes
+ * sending these notifications, the notification will be saved in the Notifications
+ * Firestore Collection.
+ */
+export const sendNotification = async (
+    notification: Notification,
     startTime: number,
 ): Promise<string> => {
-    const devicesRef = admin.firestore().collection("devices");
-    const notificationsRef = admin.firestore().collection("settings");
+    const devicesRef = admin.firestore().collection(kDevices);
+    const notificationsRef = admin.firestore().collection(kNotifications);
 
     const snapshot = await devicesRef.get();
 
@@ -81,7 +87,7 @@ const sendNotification = async (
 
         if ((Date.now() - startTime) >= 360000) {
             // timeout is about 2 minutes away. Update the notifications collection so that
-            // when the next job starts it knows to what devices to continue sending 
+            // when the next Cron job starts it knows to what devices to continue sending 
             // the notification
             await notificationsRef.add({
                 "notification": notification,
@@ -90,6 +96,9 @@ const sendNotification = async (
             });
             break;
         }
+
+        // avoiding sending the same notification twice
+        if (device.notifications?.includes(notification.id)) continue;
         await sendTokenNotification(notification, device);
         functions.logger.log("sent notification to device no. ", index, ". ID is ", doc.id);
         index++;
@@ -98,13 +107,18 @@ const sendNotification = async (
     return "sent messages to all devices";
 };
 
+/** Sends a notification to multile devices. This is only called when a function
+ * is triggered by a Cron job.
+ */
 const continueSendingNotification = async (
-    notification: TokenArgumentsWithDownloadItem | TokenArgumentsWithWhatsNew,
+    notification: Notification,
     devices: admin.firestore.QueryDocumentSnapshot<admin.firestore.DocumentData>[],
+    remainingTime: number,
 ): Promise<string> => {
     const start = Date.now();
 
-    const notificationsRef = admin.firestore().collection("settings");
+    // if true timeout is 20 seconds away
+    if (remainingTime <= 2000) return "No enough time to send notification";
 
     /// delay for one second to make sure you don't run into 1 document read per second on 
     /// enforced by Cloud Firestore
@@ -112,124 +126,55 @@ const continueSendingNotification = async (
 
     /// looping over all devices in a snapshot.docs.
     for (const doc of devices) {
-        const data = doc.data() as Device;
+        const device = { ...doc.data(), "id": doc.id } as Device;
 
-        if ((Date.now() - start) >= 360000) {
-            // timeout is about 2 minutes away. Update the settings documents so that
-            // when the next job starts it knows from what device to start sending 
-            // the notification and what item to send
-
-            await notificationsRef.doc(notification.id).set({
-                "notification": notification,
-                "timestamp": Date.now(),
-            });
-            break;
-        }
-        await sendTokenNotification(notification, data);
+        const timeSpent = Date.now() - start;
+        // if true, timeout is 10 seconds away
+        if ((remainingTime - timeSpent) <= 10000) break;
+        await sendTokenNotification(notification, device);
     }
 
     return "sent messages to all remaining devices";
 };
 
+/**
+ * Called by the Cron job to continue sending notifications to all remaining devices.
+ * 
+ * This whole process should take 8 minutes (=== 480000 milliseconds) to complete.
+ */
 export const continueSendingNotifications = async () => {
+    const startTime = Date.now();
     functions.logger.info("CONTINUING SENDING NOTIFICATIONS PROCESS");
 
-    const devicesRef = admin.firestore().collection("devices");
+    const devicesRef = admin.firestore().collection(kDevices);
     const notificationsRef = admin.firestore()
-        .collection("notifications")
+        .collection(kNotifications)
         .orderBy("timestamp", "desc");
     const snapshots = await notificationsRef.get();
 
-    if (snapshots.size === 0) functions.logger.info("NO NOTIFICATION WAS FOUND");
+    if (snapshots.size === 0) {
+        functions.logger.info("NO NOTIFICATION WAS FOUND");
+        return;
+    }
 
     for (const doc of snapshots.docs) {
         const data = doc.data();
         const devicesSnapshot = await devicesRef.
             where("notifications", "not-in", [doc.id])
             .get();
-        if (devicesSnapshot.size === 0) continue;
-        await continueSendingNotification(data.notification, devicesSnapshot.docs);
-        break;
-    }
-}
-
-// ! TEST
-export const sendTestMessages = async (
-    {
-        title,
-        message,
-        type,
-    }: TokenMessageArguments, item: any, id: number
-): Promise<string> => {
-    const devicesRef = admin.firestore().collection("devices");
-    const testUsers = ["L0YtitRdZmWap8XFLpbrvrL0Rjb2"];
-
-    for (const user of testUsers) {
-        const devices = [];
-
-        const doc = await admin.firestore().collection("users").doc(user).get();
-        if (!doc.exists) continue;
-
-        if (doc.data() != null) {
-            const data = doc.data() ?? {};
-            devices.push(...(data['devices'] ?? []));
+        if (devicesSnapshot.size === 0) {
+            // delete this notification since all devices have it in their notifications history.
+            // That means it has been sent to all devices.
+            await admin.firestore()
+                .collection("notifications").doc(doc.id).delete();
+            continue;
         }
-
-        functions.logger.debug(user, devices);
-        let index = 0;
-
-        for (const device of devices) {
-            const doc = await devicesRef.doc(device).get();
-            if (!doc.exists) continue;
-
-            const data = doc.data() ?? {};
-
-            const token: string = data["token"] ?? "";
-            if (token.trim().length == 0) continue;
-
-            const badge: number = data["badge"] ?? 0;
-            const args: PayloadArguments = {
-                token: token,
-                title: title,
-                message: message,
-                badge: badge + 1,
-                type: type,
-                item: item,
-                id: id.toString(),
-            };
-
-            const payload = createTokenPayload(args);
-            functions.logger.log("sending notification; device no. ", index, " id is ", doc.id);
-            try {
-                await admin.messaging().send(payload);
-                await devicesRef.doc(doc.id).update({ badge: badge + 1 });
-                functions.logger.info(`successfully sent message to ${doc.id}`);
-                index++;
-            } catch (error) {
-                functions.logger.error(error);
-                index++;
-                continue;
-            }
-        }
+        await continueSendingNotification(
+            data.notification,
+            devicesSnapshot.docs,
+            480000 - startTime,
+        );
     }
-    return "sent messages to all devices";
-};
-
-interface PayloadArguments {
-    token: string;
-    title: string;
-    message: string;
-    type: string;
-    badge: number;
-    item: any;
-    id: string;
-}
-
-interface Device {
-    badge: number;
-    token: string;
-    id: string;
-    notifications?: Array<string>;
 }
 
 const createTokenPayload = ({
@@ -239,9 +184,10 @@ const createTokenPayload = ({
     type,
     badge,
     item,
-    id,
-}: PayloadArguments): TokenMessage => {
-    const notificationID = id.toString().substring(id.toString().length - 4);
+    collapseID,
+}: PayloadArguments,
+): TokenMessage => {
+    const notificationID = collapseID.toString().substring(collapseID.toString().length - 4);
 
     const apnsConfig: ApnsConfig = {
         payload: {
@@ -287,9 +233,9 @@ export const createTopicPayload = ({
     type,
     badge,
     item,
-    id,
+    collapseID,
 }: PayloadArguments): TopicMessage => {
-    const notificationID = id.toString().substring(id.toString().length - 4);
+    const notificationID = collapseID.toString().substring(collapseID.toString().length - 4);
 
     const apnsConfig: ApnsConfig = {
         payload: {
@@ -330,5 +276,3 @@ export const createTopicPayload = ({
 };
 
 const delayFor = async (milliseconds: number) => await new Promise(resolve => setTimeout(resolve, milliseconds));
-
-export { sendNotification, TokenMessageArguments }

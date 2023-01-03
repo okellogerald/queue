@@ -24,22 +24,14 @@ exports.onDownloadCreated = functions.runWith({
     memory: "1GB",
 }).firestore
     .document("dailyDownloads/{ID}")
-    .onCreate(downloads.handler);
-
-exports.onTestDownloadCreated = functions.firestore
-    .document("test_daily_downloads/{ID}")
-    .onCreate(downloads.testHandler);
+    .onCreate(downloads.onCreateHandler);
 
 exports.onNewItemAdded = functions.runWith({
     timeoutSeconds: 540,
     memory: "1GB",
 }).firestore
     .document("whats_new/{ID}")
-    .onCreate(whatsNew.handler);
-
-exports.onTestNewItemAdded = functions.firestore
-    .document("test_collection/{ID}")
-    .onCreate(whatsNew.testHandler);
+    .onCreate(whatsNew.onCreateHandler);
 
 exports.onDeviceCreated = functions.firestore
     .document("devices/{ID}")
@@ -56,18 +48,12 @@ exports.checkForUnPostedDownloads = functions.runWith({
     .schedule("*/10 * * * *")
     .onRun(downloads.checkForUnPostedDownloads);
 
-/// checks after every 9 minutes if there is staff to send. Takes the last device id and
-/// starts from there to send the notifications. After 8 minutes, the last document id is updated
-/// in its collection waiting for this function to run again in the next 1 minute, and proceed with
-/// the operation.
+/// checks after every 10 minutes if there is staff to send.
 exports.continueSendingNotifications = functions.runWith({
     timeoutSeconds: 540,
     memory: "1GB",
 }).pubsub
-    .schedule("*/9 * * * *")
+    .schedule("*/10 * * * *")
     .onRun(common.continueSendingNotifications);
 
 exports.dailyDownloadsFetch = functions.https.onRequest(downloads.fetchDownloads);
-
-//exports.testDailyDownloadsFetch = functions.https.onRequest(downloads.fetchTestDownloads);
-

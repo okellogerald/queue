@@ -1,11 +1,14 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { QueryDocumentSnapshot } from "firebase-functions/v1/firestore";
-import { sendNotification, sendTestMessages, TokenMessageArguments } from "./common";
 import { DataSnapshot } from "firebase-admin/database";
+import { Book, Category, Decode, Recode, Stone, WhatsNewNotification, Topic } from "./types";
+import { sendNotification } from "./common";
+import { v4 as getRandomID } from 'uuid';
+
 /* eslint-disable  @typescript-eslint/no-explicit-any */
 
-const handler = async (snapshot: QueryDocumentSnapshot) => {
+export const onCreateHandler = async (snapshot: QueryDocumentSnapshot) => {
     const start = Date.now();
 
     const { id, createdAt, position, type } = snapshot.data();
@@ -22,7 +25,7 @@ const handler = async (snapshot: QueryDocumentSnapshot) => {
         const category = await _getCategoryFrom(topic["categoryID"]);
         const description = _getDescription(type == "topic" ? topic : item, type, topic.topicName, category.name,);
 
-        const args: TokenArgumentsWithWhatsNew = {
+        const notification: WhatsNewNotification = {
             title: _getTitleFromType(type, item),
             message: description,
             type: "whats_new",
@@ -38,51 +41,11 @@ const handler = async (snapshot: QueryDocumentSnapshot) => {
                 decode: type == "decode" ? item : null,
                 stone: type == "stone" ? item : null,
             },
-            id: createdAt.toString(),
+            collapseID: createdAt.toString(),
+            id: getRandomID(),
         }
 
-        const result = await sendNotification(args, start);
-        functions.logger.log(`${result}`);
-    } catch (error) {
-        functions.logger.log(`error: ${error}`);
-    }
-}
-
-export const testHandler = async (snapshot: QueryDocumentSnapshot) => {
-    const { id, createdAt, position, type } = snapshot.data();
-
-    try {
-        const item = await _getItemFrom(id, type);
-        let topic: Topic;
-        if (type == "topic") {
-            topic = await _getTopicFrom(id);
-        } else {
-            topic = await _getTopicFrom(item["topicID"]);
-        }
-
-        const category = await _getCategoryFrom(topic["categoryID"]);
-        const description = _getDescription(type == "topic" ? topic : item, type, topic.topicName, category.name,);
-
-        const args: TokenArgumentsWithWhatsNew = {
-            title: _getTitleFromType(type, item),
-            message: description,
-            type: "whats_new",
-            item: {
-                createdAt: createdAt,
-                id: id,
-                position: position,
-                type: type,
-                topic: topic,
-                category: category,
-                book: type == "book" ? item : null,
-                recode: type == "recode" ? item : null,
-                decode: type == "decode" ? item : null,
-                stone: type == "stone" ? item : null,
-            },
-            id: createdAt.toString(),
-        }
-
-        const result = await sendTestMessages(args, args.item, createdAt);
+        const result = await sendNotification(notification, start);
         functions.logger.log(`${result}`);
     } catch (error) {
         functions.logger.log(`error: ${error}`);
@@ -181,100 +144,3 @@ const _getDescription = (item: any, type: string, topicName: string, categoryNam
         return item["bookName"];
     }
 }
-
-export interface TokenArgumentsWithWhatsNew extends TokenMessageArguments {
-    item: WhatsNew,
-}
-
-export interface WhatsNew {
-    id: string,
-    createdAt: string,
-    position: number,
-    type: string,
-    topic: Topic,
-    category: Category,
-    book?: Book,
-    recode?: Recode,
-    decode?: Decode,
-    stone?: Stone,
-}
-
-interface Topic {
-    key: string,
-    categoryID: string,
-    created_at: string,
-    overdue: string,
-    read: boolean,
-    status: string,
-    topicColor: string,
-    topicIcon: string,
-    topicName: string,
-    topicPosition: string
-}
-
-interface Category {
-    key: string,
-    categoryColor: string,
-    categoryIcon: string,
-    categoryPosition: string,
-    category_image: string,
-    name: string,
-    status: string,
-}
-
-interface Book {
-    key: string,
-    authorName: string,
-    bookColor: string,
-    bookName: string,
-    bookUrl: string,
-    bookUrliOS: string,
-    bookpicture: string,
-    categoryID: string,
-    status: string,
-    topicID: string,
-}
-
-interface Stone {
-    key: string,
-    categoryID: string,
-    status: string,
-    stoneColor: string,
-    stoneDescription: string,
-    stoneIMage: string,
-    stoneName: string,
-    stoneURL: string,
-    topicID: string,
-}
-
-interface Recode {
-    key: string,
-    categoryID: string,
-    recodeAudio: string,
-    recodeAudioSecond: string,
-    recodeColor: string,
-    recodeDescription: string,
-    recodeSecondDescription: string,
-    secondColor: string,
-    status: string,
-    topicID: string
-}
-
-interface Decode {
-    key: string,
-    categoryID: string,
-    decodeAudio: string,
-    decodeVideo: string,
-    decodecolor: string,
-    decodethumbnail: string,
-    decodingName: string,
-    decodingTitle: string,
-    hours: string,
-    minute: string,
-    second: string,
-    status: string,
-    topicID: string
-}
-
-
-export { handler }
